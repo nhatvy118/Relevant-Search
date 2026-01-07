@@ -3,23 +3,36 @@
 const API_BASE = '/api';
 let currentResults = [];
 let queryImageFile = null;
+let currentMethod = 'traditional'; // 'traditional' or 'text'
+
+// Text feedback storage
+let textFeedbackItems = [];
 
 // DOM Elements
 const elements = {
+    methodSelector: document.getElementById('methodSelector'),
+    methodDescription: document.getElementById('methodDescription'),
     buildIndexBtn: document.getElementById('buildIndexBtn'),
     loadIndexBtn: document.getElementById('loadIndexBtn'),
     imageFolder: document.getElementById('imageFolder'),
     indexStatus: document.getElementById('indexStatus'),
+    textQuerySection: document.getElementById('textQuerySection'),
+    imageQuerySection: document.getElementById('imageQuerySection'),
+    textQuery: document.getElementById('textQuery'),
+    textSearchBtn: document.getElementById('textSearchBtn'),
     queryImage: document.getElementById('queryImage'),
     queryPreview: document.getElementById('queryPreview'),
     searchBtn: document.getElementById('searchBtn'),
+    textFeedbackSection: document.getElementById('textFeedbackSection'),
+    textFeedback: document.getElementById('textFeedback'),
+    addTextFeedbackBtn: document.getElementById('addTextFeedbackBtn'),
+    textFeedbackList: document.getElementById('textFeedbackList'),
     applyFeedbackBtn: document.getElementById('applyFeedbackBtn'),
-    resetBtn: document.getElementById('resetBtn'),
-    feedbackInfo: document.getElementById('feedbackInfo'),
     resultsContainer: document.getElementById('resultsContainer'),
     loadingOverlay: document.getElementById('loadingOverlay'),
     loadingText: document.getElementById('loadingText')
 };
+
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,33 +41,111 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupEventListeners() {
+    // Method selection
+    elements.methodSelector.addEventListener('change', handleMethodChange);
+    
     // Index management
     elements.buildIndexBtn.addEventListener('click', buildIndex);
     elements.loadIndexBtn.addEventListener('click', loadIndex);
     
-    // Query image
+    // Query
     elements.queryImage.addEventListener('change', handleQueryImageSelect);
+    elements.textQuery.addEventListener('input', handleTextQueryInput);
+    elements.textSearchBtn.addEventListener('click', performTextSearch);
     
     // Search
     elements.searchBtn.addEventListener('click', performSearch);
     
+    // Text Feedback
+    elements.addTextFeedbackBtn.addEventListener('click', addTextFeedback);
+    elements.textFeedback.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            addTextFeedback();
+        }
+    });
+    
     // Feedback
     elements.applyFeedbackBtn.addEventListener('click', applyFeedback);
-    elements.resetBtn.addEventListener('click', resetFeedback);
+    
 }
+
+function handleMethodChange() {
+    currentMethod = elements.methodSelector.value;
+    
+    // Update UI based on method
+    if (currentMethod === 'text') {
+        elements.textQuerySection.style.display = 'block';
+        elements.imageQuerySection.style.display = 'block';
+        elements.textFeedbackSection.style.display = 'block';
+        elements.methodDescription.innerHTML = '<small>Text-based: Uses CLIP embeddings for text and image queries</small>';
+    } else {
+        elements.textQuerySection.style.display = 'none';
+        elements.imageQuerySection.style.display = 'block';
+        elements.textFeedbackSection.style.display = 'none';
+        elements.methodDescription.innerHTML = '<small>Traditional: Uses color, intensity, and texture features</small>';
+    }
+    
+    // Reset query states
+    queryImageFile = null;
+    elements.queryPreview.innerHTML = '';
+    elements.searchBtn.disabled = true;
+    elements.textQuery.value = '';
+    elements.textSearchBtn.disabled = true;
+    textFeedbackItems = [];
+    updateTextFeedbackList();
+    currentResults = [];
+    
+    // Check status for current method
+    checkStatus();
+}
+
+function addTextFeedback() {
+    const text = elements.textFeedback.value.trim();
+    if (!text) {
+        return;
+    }
+    
+    textFeedbackItems.push(text);
+    elements.textFeedback.value = '';
+    updateTextFeedbackList();
+}
+
+function removeTextFeedback(index) {
+    textFeedbackItems.splice(index, 1);
+    updateTextFeedbackList();
+}
+
+function updateTextFeedbackList() {
+    if (textFeedbackItems.length === 0) {
+        elements.textFeedbackList.innerHTML = '<small style="color: #999;">No text feedback added</small>';
+        return;
+    }
+    
+    elements.textFeedbackList.innerHTML = textFeedbackItems.map((text, idx) => `
+        <div class="text-feedback-item">
+            <span>${text}</span>
+            <button class="remove-text-feedback" onclick="removeTextFeedback(${idx})" title="Remove">×</button>
+        </div>
+    `).join('');
+}
+
+// Make removeTextFeedback available globally for onclick
+window.removeTextFeedback = removeTextFeedback;
 
 async function checkStatus() {
     try {
         const response = await fetch(`${API_BASE}/status`);
         const data = await response.json();
         
-        if (data.has_index) {
-            elements.indexStatus.textContent = `✓ Index loaded: ${data.image_count} images`;
+        const methodData = currentMethod === 'traditional' ? data.traditional : data.text;
+        
+        if (methodData.has_index) {
+            elements.indexStatus.textContent = `✓ ${currentMethod === 'text' ? 'Text (CLIP)' : 'Traditional'} index: ${methodData.image_count} images`;
             elements.indexStatus.style.background = '#d4edda';
             elements.indexStatus.style.color = '#155724';
             elements.indexStatus.style.borderColor = '#c3e6cb';
         } else {
-            elements.indexStatus.textContent = 'No index found. Please build or load index.';
+            elements.indexStatus.textContent = `No ${currentMethod === 'text' ? 'text' : 'traditional'} index. Please build or load index.`;
             elements.indexStatus.style.background = '#f8d7da';
             elements.indexStatus.style.color = '#721c24';
             elements.indexStatus.style.borderColor = '#f5c6cb';
@@ -83,7 +174,8 @@ async function buildIndex() {
     
     const maxImages = maxImagesStr === '' ? null : parseInt(maxImagesStr);
     
-    showLoading('Building index... This may take a while.');
+    const methodName = currentMethod === 'text' ? 'Text (CLIP)' : 'Traditional';
+    showLoading(`Building ${methodName} index... This may take a while.`);
     
     try {
         const response = await fetch(`${API_BASE}/build_index`, {
@@ -92,6 +184,7 @@ async function buildIndex() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
+                method: currentMethod,
                 folder: folder,
                 max_images: maxImages,
                 force_rebuild: true
@@ -105,7 +198,7 @@ async function buildIndex() {
             elements.indexStatus.style.background = '#d4edda';
             elements.indexStatus.style.color = '#155724';
             elements.indexStatus.style.borderColor = '#c3e6cb';
-            await showModal('Success', `Index built successfully with ${data.image_count} images!`, '');
+            await showModal('Success', `${methodName} index built successfully with ${data.image_count} images!`, '');
         } else {
             throw new Error(data.error || 'Failed to build index');
         }
@@ -121,14 +214,18 @@ async function buildIndex() {
 }
 
 async function loadIndex() {
-    showLoading('Loading index...');
+    const methodName = currentMethod === 'text' ? 'Text (CLIP)' : 'Traditional';
+    showLoading(`Loading ${methodName} index...`);
     
     try {
         const response = await fetch(`${API_BASE}/load_index`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({
+                method: currentMethod
+            })
         });
         
         const data = await response.json();
@@ -138,7 +235,7 @@ async function loadIndex() {
             elements.indexStatus.style.background = '#d4edda';
             elements.indexStatus.style.color = '#155724';
             elements.indexStatus.style.borderColor = '#c3e6cb';
-            await showModal('Success', `Index loaded successfully with ${data.image_count} images!`, '');
+            await showModal('Success', `${methodName} index loaded successfully with ${data.image_count} images!`, '');
         } else {
             throw new Error(data.error || 'Failed to load index');
         }
@@ -168,6 +265,11 @@ function handleQueryImageSelect(event) {
     }
 }
 
+function handleTextQueryInput() {
+    const text = elements.textQuery.value.trim();
+    elements.textSearchBtn.disabled = !text;
+}
+
 async function performSearch() {
     if (!queryImageFile) {
         await showModal('Info', 'Please select a query image first', '');
@@ -187,6 +289,7 @@ async function performSearch() {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
+                        method: currentMethod,
                         type: 'image',
                         image: e.target.result,
                         top_k: 20
@@ -198,9 +301,7 @@ async function performSearch() {
                 if (data.success) {
                     currentResults = data.results;
                     displayResults(data.results);
-                    updateFeedbackInfo(data.feedback);
                     elements.applyFeedbackBtn.disabled = false;
-                    elements.resetBtn.disabled = false;
                 } else {
                     throw new Error(data.error || 'Search failed');
                 }
@@ -215,6 +316,46 @@ async function performSearch() {
     } catch (error) {
         console.error('Error:', error);
         await showModal('Error', `Error: ${error.message}`, '');
+        hideLoading();
+    }
+}
+
+async function performTextSearch() {
+    const textQuery = elements.textQuery.value.trim();
+    if (!textQuery) {
+        await showModal('Info', 'Please enter a text query first', '');
+        return;
+    }
+    
+    showLoading('Searching with text query...');
+    
+    try {
+        const response = await fetch(`${API_BASE}/search`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                method: 'text',
+                type: 'text',
+                text_query: textQuery,
+                top_k: 20
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentResults = data.results;
+            displayResults(data.results);
+            elements.applyFeedbackBtn.disabled = false;
+        } else {
+            throw new Error(data.error || 'Search failed');
+        }
+    } catch (error) {
+        console.error('Error searching:', error);
+        await showModal('Error', `Search error: ${error.message}`, '');
+    } finally {
         hideLoading();
     }
 }
@@ -285,23 +426,35 @@ async function applyFeedback() {
         }
     });
     
-    if (feedback.length === 0) {
-        await showModal('Info', 'Please mark at least one image as relevant or irrelevant', '');
+    // Check if there's any feedback (image or text)
+    const hasImageFeedback = feedback.length > 0;
+    const hasTextFeedback = currentMethod === 'text' && textFeedbackItems.length > 0;
+    
+    if (!hasImageFeedback && !hasTextFeedback) {
+        await showModal('Info', 'Please mark at least one image as relevant/irrelevant or add text feedback', '');
         return;
     }
     
     showLoading('Applying feedback and reformulating query...');
     
     try {
+        const requestBody = {
+            method: currentMethod,
+            feedback: feedback,
+            top_k: 20
+        };
+        
+        // Add text feedback for text method
+        if (currentMethod === 'text' && textFeedbackItems.length > 0) {
+            requestBody.text_feedback = textFeedbackItems;
+        }
+        
         const response = await fetch(`${API_BASE}/feedback`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                feedback: feedback,
-                top_k: 20
-            })
+            body: JSON.stringify(requestBody)
         });
         
         const data = await response.json();
@@ -309,7 +462,6 @@ async function applyFeedback() {
         if (data.success) {
             currentResults = data.results;
             displayResults(data.results);
-            updateFeedbackInfo(data.feedback);
             await showModal('Success', 'Feedback applied! Query has been reformulated.', '');
         } else {
             throw new Error(data.error || 'Failed to apply feedback');
@@ -320,53 +472,6 @@ async function applyFeedback() {
     } finally {
         hideLoading();
     }
-}
-
-async function resetFeedback() {
-    if (!confirm('Reset all feedback? This will clear all relevance marks.')) {
-        return;
-    }
-    
-    showLoading('Resetting feedback...');
-    
-    try {
-        const response = await fetch(`${API_BASE}/reset`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            // Clear all checkboxes
-            document.querySelectorAll('.relevant-checkbox, .irrelevant-checkbox').forEach(cb => {
-                cb.checked = false;
-            });
-            
-            // Refresh display if there are results
-            if (currentResults.length > 0) {
-                displayResults(currentResults);
-            }
-            
-            updateFeedbackInfo({ relevant_count: 0, irrelevant_count: 0 });
-            await showModal('Success', 'Feedback reset successfully', '');
-        } else {
-            throw new Error(data.error || 'Failed to reset feedback');
-        }
-    } catch (error) {
-        console.error('Error resetting feedback:', error);
-        await showModal('Error', `Error: ${error.message}`, '');
-    } finally {
-        hideLoading();
-    }
-}
-
-function updateFeedbackInfo(feedback) {
-    const relevant = feedback.relevant_count || 0;
-    const irrelevant = feedback.irrelevant_count || 0;
-    elements.feedbackInfo.textContent = `Relevant: ${relevant} | Irrelevant: ${irrelevant}`;
 }
 
 function showLoading(text = 'Loading...') {
