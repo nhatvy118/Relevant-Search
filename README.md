@@ -31,11 +31,19 @@ Sau đó mở trình duyệt và truy cập URL được hiển thị (mặc đ�
 ## Cấu trúc Project
 
 - `app.py` - Flask web server
-- `feature_extractor.py` - Extract features từ ảnh
-- `indexer.py` - Index và quản lý features
-- `retrieval.py` - Hệ thống tìm kiếm với Rocchio method
-- `build_index.py` - Script build index từ command line
+- `traditional/` - Traditional method (visual features)
+  - `feature_extractor.py` - Extract visual features
+  - `indexer.py` - Index management
+  - `retrieval.py` - Retrieval with Rocchio method
+- `clip/` - CLIP method (text-based)
+  - `extractor.py` - CLIP feature extraction
+  - `indexer.py` - CLIP index management
+  - `retrieval.py` - CLIP retrieval with text feedback
+- `build_index.py` - Script build Traditional index từ command line
+- `build_index_clip.py` - Script build CLIP index từ command line
 - `static/` - Frontend files (HTML, CSS, JavaScript)
+
+Xem chi tiết cấu trúc trong `STRUCTURE.md`
 
 ## Phương pháp
 

@@ -6,3 +6,8 @@ scikit-learn>=1.3.0
 Flask>=2.3.0
 flask-cors>=4.0.0
 
+# IMPORTANT: Install torch and torchvision separately with compatible versions first
+# Example: pip install torch==2.8.0 torchvision==0.23.0
+# Then install clip-by-openai with --no-deps to avoid version conflicts
+# Example: pip install clip-by-openai --no-deps
+

@@ -1,5 +1,5 @@
 """
-Feature Extraction Module
+Feature Extraction Module for Traditional Method
 Extract color, intensity, and texture features from images
 """
 

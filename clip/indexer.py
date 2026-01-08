@@ -1,6 +1,6 @@
 """
-Indexing Module
-Save and load image features for fast retrieval
+Text Indexing Module using CLIP
+Save and load CLIP image embeddings for text-based retrieval
 """
 
 import numpy as np
@@ -8,21 +8,21 @@ import pickle
 import os
 from pathlib import Path
 from typing import List, Tuple, Optional
-from feature_extractor import FeatureExtractor
+from .extractor import CLIPExtractor
 
 
-class ImageIndexer:
-    """Index and manage image features"""
+class TextIndexer:
+    """Index and manage CLIP image embeddings for text-based retrieval"""
     
-    def __init__(self, index_file: str = "image_index.pkl"):
+    def __init__(self, index_file: str = "text_index.pkl", clip_model: str = "ViT-B/32"):
         self.index_file = index_file
         self.image_paths: List[str] = []
         self.features: Optional[np.ndarray] = None
-        self.extractor = FeatureExtractor()
+        self.extractor = CLIPExtractor(model_name=clip_model)
     
     def build_index(self, image_folder: str, max_images: int = None, force_rebuild: bool = False):
         """
-        Build index from image folder
+        Build CLIP index from image folder
         
         Args:
             image_folder: Path to folder containing images
@@ -34,20 +34,21 @@ class ImageIndexer:
             print(f"Index file {self.index_file} already exists. Use force_rebuild=True to rebuild.")
             return
         
-        print(f"Building index from {image_folder}...")
+        print(f"Building CLIP index from {image_folder}...")
         self.image_paths, self.features = self.extractor.extract_features_from_folder(
             image_folder, max_images=max_images
         )
         
         # Save index
         self.save_index()
-        print(f"Index built and saved to {self.index_file}")
+        print(f"CLIP index built and saved to {self.index_file}")
     
     def save_index(self):
-        """Save index to disk"""
+        """Save CLIP index to disk"""
         index_data = {
             'image_paths': self.image_paths,
-            'features': self.features
+            'features': self.features,
+            'index_type': 'clip'
         }
         
         with open(self.index_file, 'wb') as f:
@@ -55,7 +56,7 @@ class ImageIndexer:
     
     def load_index(self) -> bool:
         """
-        Load index from disk
+        Load CLIP index from disk
         
         Returns:
             True if loaded successfully, False otherwise
@@ -71,11 +72,11 @@ class ImageIndexer:
             self.image_paths = index_data['image_paths']
             self.features = index_data['features']
             
-            print(f"Loaded index with {len(self.image_paths)} images")
+            print(f"Loaded CLIP index with {len(self.image_paths)} images")
             print(f"Feature dimension: {self.features.shape[1]}")
             return True
         except Exception as e:
-            print(f"Error loading index: {e}")
+            print(f"Error loading CLIP index: {e}")
             return False
     
     def get_image_paths(self) -> List[str]:
@@ -103,7 +104,7 @@ class ImageIndexer:
             True if successful, False otherwise
         """
         try:
-            features = self.extractor.extract_features(image_path)
+            features = self.extractor.extract_image_features(image_path)
             
             if self.features is None:
                 self.features = features.reshape(1, -1)

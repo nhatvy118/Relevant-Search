@@ -1,5 +1,6 @@
 """
 Flask Backend API for Image Retrieval with Relevance Feedback
+Supports both Traditional and Text-based (CLIP) methods
 """
 
 from flask import Flask, request, jsonify, send_from_directory
@@ -10,21 +11,28 @@ import base64
 from PIL import Image
 import io
 
-from indexer import ImageIndexer
-from retrieval import ImageRetrieval
-from feature_extractor import FeatureExtractor
+# Traditional method imports
+from traditional import ImageIndexer, TraditionalImageRetrieval, FeatureExtractor
+
+# Text-based (CLIP) method imports
+from clip import TextIndexer, TextRetrieval
 
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)  # Enable CORS for all routes
 
-# Global variables
-indexer = ImageIndexer()
-retrieval = None
-extractor = FeatureExtractor()
+# Global variables - Traditional method
+traditional_indexer = ImageIndexer()
+traditional_retrieval = None
+traditional_extractor = FeatureExtractor()
+
+# Global variables - Text-based (CLIP) method
+text_indexer = TextIndexer()
+text_retrieval = None
 
 # Configuration
 IMAGES_FOLDER = 'images'
-INDEX_FILE = 'image_index.pkl'
+TRADITIONAL_INDEX_FILE = 'image_index.pkl'
+TEXT_INDEX_FILE = 'text_index.pkl'
 
 
 @app.route('/')
@@ -35,22 +43,32 @@ def index():
 
 @app.route('/api/status', methods=['GET'])
 def get_status():
-    """Get system status"""
-    has_index = os.path.exists(INDEX_FILE)
-    image_count = indexer.get_image_count() if has_index else 0
+    """Get system status for both methods"""
+    has_traditional_index = os.path.exists(TRADITIONAL_INDEX_FILE)
+    has_text_index = os.path.exists(TEXT_INDEX_FILE)
+    traditional_count = traditional_indexer.get_image_count() if has_traditional_index else 0
+    text_count = text_indexer.get_image_count() if has_text_index else 0
     
     return jsonify({
-        'has_index': has_index,
-        'image_count': image_count,
-        'index_file': INDEX_FILE
+        'traditional': {
+            'has_index': has_traditional_index,
+            'image_count': traditional_count,
+            'index_file': TRADITIONAL_INDEX_FILE
+        },
+        'text': {
+            'has_index': has_text_index,
+            'image_count': text_count,
+            'index_file': TEXT_INDEX_FILE
+        }
     })
 
 
 @app.route('/api/build_index', methods=['POST'])
 def build_index():
-    """Build index from image folder"""
+    """Build index from image folder - supports both methods"""
     try:
         data = request.json
+        method = data.get('method', 'traditional')  # 'traditional' or 'text'
         image_folder = data.get('folder', IMAGES_FOLDER)
         max_images = data.get('max_images', None)
         force_rebuild = data.get('force_rebuild', False)
@@ -58,118 +76,206 @@ def build_index():
         if not os.path.exists(image_folder):
             return jsonify({'error': f'Folder not found: {image_folder}'}), 400
         
-        indexer.build_index(image_folder, max_images=max_images, force_rebuild=force_rebuild)
-        
-        # Initialize retrieval
-        global retrieval
-        retrieval = ImageRetrieval(indexer.features, indexer.image_paths)
-        
-        return jsonify({
-            'success': True,
-            'image_count': indexer.get_image_count(),
-            'message': f'Index built successfully with {indexer.get_image_count()} images'
-        })
+        if method == 'traditional':
+            traditional_indexer.build_index(image_folder, max_images=max_images, force_rebuild=force_rebuild)
+            global traditional_retrieval
+            traditional_retrieval = TraditionalImageRetrieval(traditional_indexer.features, traditional_indexer.image_paths)
+            
+            return jsonify({
+                'success': True,
+                'method': 'traditional',
+                'image_count': traditional_indexer.get_image_count(),
+                'message': f'Traditional index built successfully with {traditional_indexer.get_image_count()} images'
+            })
+        elif method == 'text':
+            text_indexer.build_index(image_folder, max_images=max_images, force_rebuild=force_rebuild)
+            global text_retrieval
+            text_retrieval = TextRetrieval(text_indexer.features, text_indexer.image_paths)
+            
+            return jsonify({
+                'success': True,
+                'method': 'text',
+                'image_count': text_indexer.get_image_count(),
+                'message': f'Text (CLIP) index built successfully with {text_indexer.get_image_count()} images'
+            })
+        else:
+            return jsonify({'error': f'Invalid method: {method}. Use "traditional" or "text"'}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/load_index', methods=['POST'])
 def load_index():
-    """Load existing index"""
+    """Load existing index - supports both methods"""
     try:
-        if indexer.load_index():
-            global retrieval
-            retrieval = ImageRetrieval(indexer.features, indexer.image_paths)
-            
-            return jsonify({
-                'success': True,
-                'image_count': indexer.get_image_count(),
-                'message': f'Index loaded successfully with {indexer.get_image_count()} images'
-            })
+        data = request.json
+        method = data.get('method', 'traditional')  # 'traditional' or 'text'
+        
+        if method == 'traditional':
+            if traditional_indexer.load_index():
+                global traditional_retrieval
+                traditional_retrieval = TraditionalImageRetrieval(traditional_indexer.features, traditional_indexer.image_paths)
+                
+                return jsonify({
+                    'success': True,
+                    'method': 'traditional',
+                    'image_count': traditional_indexer.get_image_count(),
+                    'message': f'Traditional index loaded successfully with {traditional_indexer.get_image_count()} images'
+                })
+            else:
+                return jsonify({'error': 'Traditional index file not found'}), 404
+        elif method == 'text':
+            if text_indexer.load_index():
+                global text_retrieval
+                text_retrieval = TextRetrieval(text_indexer.features, text_indexer.image_paths)
+                
+                return jsonify({
+                    'success': True,
+                    'method': 'text',
+                    'image_count': text_indexer.get_image_count(),
+                    'message': f'Text (CLIP) index loaded successfully with {text_indexer.get_image_count()} images'
+                })
+            else:
+                return jsonify({'error': 'Text index file not found'}), 404
         else:
-            return jsonify({'error': 'Index file not found'}), 404
+            return jsonify({'error': f'Invalid method: {method}. Use "traditional" or "text"'}), 400
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/search', methods=['POST'])
 def search():
-    """Perform image search"""
+    """Perform image search - supports both traditional and text methods"""
     try:
-        if retrieval is None:
-            return jsonify({'error': 'Index not loaded. Please load or build index first.'}), 400
-        
         data = request.json
-        query_type = data.get('type', 'image')  # 'image' or 'file'
+        method = data.get('method', 'traditional')  # 'traditional' or 'text'
+        query_type = data.get('type', 'image')  # 'image', 'file', or 'text'
         
-        if query_type == 'image':
-            # Query from uploaded image
-            image_data = data.get('image')
-            if not image_data:
-                return jsonify({'error': 'No image provided'}), 400
+        if method == 'traditional':
+            if traditional_retrieval is None:
+                return jsonify({'error': 'Traditional index not loaded. Please load or build index first.'}), 400
             
-            # Decode base64 image
-            image_data = image_data.split(',')[1] if ',' in image_data else image_data
-            image_bytes = base64.b64decode(image_data)
-            image = Image.open(io.BytesIO(image_bytes))
+            if query_type == 'image':
+                # Query from uploaded image
+                image_data = data.get('image')
+                if not image_data:
+                    return jsonify({'error': 'No image provided'}), 400
+                
+                # Decode base64 image
+                image_data = image_data.split(',')[1] if ',' in image_data else image_data
+                image_bytes = base64.b64decode(image_data)
+                image = Image.open(io.BytesIO(image_bytes))
+                
+                # Save temporarily to extract features
+                temp_path = 'temp_query.jpg'
+                image.save(temp_path)
+                
+                try:
+                    query_features = traditional_extractor.extract_features(temp_path)
+                    traditional_retrieval.initial_query_from_features(query_features)
+                finally:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
             
-            # Save temporarily to extract features
-            temp_path = 'temp_query.jpg'
-            image.save(temp_path)
+            elif query_type == 'file':
+                # Query from file path in dataset
+                query_path = data.get('query_path')
+                if not query_path:
+                    return jsonify({'error': 'No query path provided'}), 400
+                
+                # Find image in index
+                query_idx = None
+                for i, path in enumerate(traditional_indexer.image_paths):
+                    if os.path.abspath(path) == os.path.abspath(query_path):
+                        query_idx = i
+                        break
+                
+                if query_idx is None:
+                    return jsonify({'error': 'Query image not found in index'}), 404
+                
+                traditional_retrieval.initial_query(query_idx)
+            else:
+                return jsonify({'error': 'Invalid query type for traditional method. Use "image" or "file"'}), 400
             
-            try:
-                query_features = extractor.extract_features(temp_path)
-                retrieval.initial_query_from_features(query_features)
-            finally:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-        
-        elif query_type == 'file':
-            # Query from file path in dataset
-            query_path = data.get('query_path')
-            if not query_path:
-                return jsonify({'error': 'No query path provided'}), 400
+            # Perform search
+            top_k = data.get('top_k', 20)
+            results = traditional_retrieval.search(top_k=top_k, exclude_feedback=False)
             
-            # Find image in index
-            query_idx = None
-            for i, path in enumerate(indexer.image_paths):
-                if os.path.abspath(path) == os.path.abspath(query_path):
-                    query_idx = i
-                    break
+            # Prepare results
+            search_results = []
+            for img_idx, similarity in results:
+                img_path = traditional_indexer.image_paths[img_idx]
+                rel_path = os.path.relpath(img_path, IMAGES_FOLDER) if IMAGES_FOLDER in img_path else img_path
+                
+                search_results.append({
+                    'index': img_idx,
+                    'path': rel_path,
+                    'full_path': img_path,
+                    'similarity': float(similarity)
+                })
             
-            if query_idx is None:
-                return jsonify({'error': 'Query image not found in index'}), 404
+            indexer = traditional_indexer
             
-            retrieval.initial_query(query_idx)
-        
+        elif method == 'text':
+            if text_retrieval is None:
+                return jsonify({'error': 'Text (CLIP) index not loaded. Please load or build index first.'}), 400
+            
+            if query_type == 'text':
+                # Query from text
+                text_query = data.get('text_query')
+                if not text_query:
+                    return jsonify({'error': 'No text query provided'}), 400
+                
+                text_retrieval.initial_query_from_text(text_query)
+            
+            elif query_type == 'image':
+                # Query from uploaded image using CLIP
+                image_data = data.get('image')
+                if not image_data:
+                    return jsonify({'error': 'No image provided'}), 400
+                
+                # Decode base64 image
+                image_data = image_data.split(',')[1] if ',' in image_data else image_data
+                image_bytes = base64.b64decode(image_data)
+                image = Image.open(io.BytesIO(image_bytes))
+                
+                text_retrieval.initial_query_from_image_pil(image)
+            
+            elif query_type == 'file':
+                # Query from file path in dataset
+                query_path = data.get('query_path')
+                if not query_path:
+                    return jsonify({'error': 'No query path provided'}), 400
+                
+                text_retrieval.initial_query_from_image(query_path)
+            else:
+                return jsonify({'error': 'Invalid query type for text method. Use "text", "image", or "file"'}), 400
+            
+            # Perform search
+            top_k = data.get('top_k', 20)
+            results = text_retrieval.search(top_k=top_k, exclude_feedback=False)
+            
+            # Prepare results
+            search_results = []
+            for img_idx, similarity in results:
+                img_path = text_indexer.image_paths[img_idx]
+                rel_path = os.path.relpath(img_path, IMAGES_FOLDER) if IMAGES_FOLDER in img_path else img_path
+                
+                search_results.append({
+                    'index': img_idx,
+                    'path': rel_path,
+                    'full_path': img_path,
+                    'similarity': float(similarity)
+                })
+            
+            indexer = text_indexer
         else:
-            return jsonify({'error': 'Invalid query type'}), 400
-        
-        # Perform search
-        top_k = data.get('top_k', 20)
-        results = retrieval.search(top_k=top_k, exclude_feedback=False)
-        
-        # Prepare results
-        search_results = []
-        for img_idx, similarity in results:
-            img_path = indexer.image_paths[img_idx]
-            # Convert to relative path for frontend
-            rel_path = os.path.relpath(img_path, IMAGES_FOLDER) if IMAGES_FOLDER in img_path else img_path
-            
-            search_results.append({
-                'index': img_idx,
-                'path': rel_path,
-                'full_path': img_path,
-                'similarity': float(similarity)
-            })
-        
-        # Get feedback summary
-        feedback_summary = retrieval.get_feedback_summary()
+            return jsonify({'error': f'Invalid method: {method}. Use "traditional" or "text"'}), 400
         
         return jsonify({
             'success': True,
+            'method': method,
             'results': search_results,
-            'feedback': feedback_summary,
             'count': len(search_results)
         })
     
@@ -179,56 +285,96 @@ def search():
 
 @app.route('/api/feedback', methods=['POST'])
 def apply_feedback():
-    """Apply relevance feedback"""
+    """Apply relevance feedback - supports both methods"""
     try:
-        if retrieval is None:
-            return jsonify({'error': 'No active search. Please search first.'}), 400
-        
         data = request.json
+        method = data.get('method', 'traditional')  # 'traditional' or 'text'
         feedback_list = data.get('feedback', [])
         
-        # Clear previous feedback
-        retrieval.clear_feedback()
-        
-        # Apply new feedback
-        for item in feedback_list:
-            img_idx = item.get('index')
-            is_relevant = item.get('relevant', False)
-            is_irrelevant = item.get('irrelevant', False)
+        if method == 'traditional':
+            if traditional_retrieval is None:
+                return jsonify({'error': 'No active search. Please search first.'}), 400
             
-            if img_idx is not None:
-                if is_relevant:
-                    retrieval.add_feedback(img_idx, is_relevant=True)
-                elif is_irrelevant:
-                    retrieval.add_feedback(img_idx, is_relevant=False)
-        
-        # Reformulate query
-        retrieval.reformulate_query()
-        
-        # Perform new search
-        top_k = data.get('top_k', 20)
-        results = retrieval.search(top_k=top_k, exclude_feedback=False)
-        
-        # Prepare results
-        search_results = []
-        for img_idx, similarity in results:
-            img_path = indexer.image_paths[img_idx]
-            rel_path = os.path.relpath(img_path, IMAGES_FOLDER) if IMAGES_FOLDER in img_path else img_path
+            # Clear previous feedback
+            traditional_retrieval.clear_feedback()
             
-            search_results.append({
-                'index': img_idx,
-                'path': rel_path,
-                'full_path': img_path,
-                'similarity': float(similarity)
-            })
-        
-        # Get feedback summary
-        feedback_summary = retrieval.get_feedback_summary()
+            # Apply new feedback
+            for item in feedback_list:
+                img_idx = item.get('index')
+                is_relevant = item.get('relevant', False)
+                is_irrelevant = item.get('irrelevant', False)
+                
+                if img_idx is not None:
+                    if is_relevant:
+                        traditional_retrieval.add_feedback(img_idx, is_relevant=True)
+                    elif is_irrelevant:
+                        traditional_retrieval.add_feedback(img_idx, is_relevant=False)
+            
+            # Reformulate query
+            traditional_retrieval.reformulate_query()
+            
+            # Perform new search
+            top_k = data.get('top_k', 20)
+            results = traditional_retrieval.search(top_k=top_k, exclude_feedback=False)
+            
+            # Prepare results
+            search_results = []
+            for img_idx, similarity in results:
+                img_path = traditional_indexer.image_paths[img_idx]
+                rel_path = os.path.relpath(img_path, IMAGES_FOLDER) if IMAGES_FOLDER in img_path else img_path
+                
+                search_results.append({
+                    'index': img_idx,
+                    'path': rel_path,
+                    'full_path': img_path,
+                    'similarity': float(similarity)
+                })
+            
+        elif method == 'text':
+            if text_retrieval is None:
+                return jsonify({'error': 'No active search. Please search first.'}), 400
+            
+            # Clear previous feedback
+            text_retrieval.clear_feedback()
+            
+            # Apply image feedback
+            for item in feedback_list:
+                img_idx = item.get('index')
+                is_relevant = item.get('relevant', False)
+                is_irrelevant = item.get('irrelevant', False)
+                
+                if img_idx is not None:
+                    if is_relevant:
+                        text_retrieval.add_feedback(img_idx, is_relevant=True)
+                    elif is_irrelevant:
+                        text_retrieval.add_feedback(img_idx, is_relevant=False)
+            
+            # Reformulate query
+            text_retrieval.reformulate_query()
+            
+            # Perform new search
+            top_k = data.get('top_k', 20)
+            results = text_retrieval.search(top_k=top_k, exclude_feedback=False)
+            
+            # Prepare results
+            search_results = []
+            for img_idx, similarity in results:
+                img_path = text_indexer.image_paths[img_idx]
+                rel_path = os.path.relpath(img_path, IMAGES_FOLDER) if IMAGES_FOLDER in img_path else img_path
+                
+                search_results.append({
+                    'index': img_idx,
+                    'path': rel_path,
+                    'full_path': img_path,
+                    'similarity': float(similarity)
+                })
+        else:
+            return jsonify({'error': f'Invalid method: {method}. Use "traditional" or "text"'}), 400
         
         return jsonify({
             'success': True,
+            'method': method,
             'results': search_results,
-            'feedback': feedback_summary,
             'count': len(search_results),
             'message': 'Feedback applied successfully'
         })
@@ -239,15 +385,26 @@ def apply_feedback():
 
 @app.route('/api/reset', methods=['POST'])
 def reset_feedback():
-    """Reset all feedback"""
+    """Reset all feedback - supports both methods"""
     try:
-        if retrieval is None:
-            return jsonify({'error': 'No active search'}), 400
+        data = request.json
+        method = data.get('method', 'traditional')  # 'traditional' or 'text'
         
-        retrieval.clear_feedback()
+        if method == 'traditional':
+            if traditional_retrieval is None:
+                return jsonify({'error': 'No active search'}), 400
+            traditional_retrieval.clear_feedback()
+        elif method == 'text':
+            if text_retrieval is None:
+                return jsonify({'error': 'No active search'}), 400
+            text_retrieval.clear_feedback()
+            text_retrieval.clear_text_feedback()
+        else:
+            return jsonify({'error': f'Invalid method: {method}. Use "traditional" or "text"'}), 400
         
         return jsonify({
             'success': True,
+            'method': method,
             'message': 'Feedback reset successfully'
         })
     
@@ -275,14 +432,15 @@ def serve_image(filename):
                 file_name = os.path.basename(path)
                 return send_from_directory(directory, file_name)
         
-        # If not found, try to find in indexer paths
-        if indexer.image_paths:
-            for img_path in indexer.image_paths:
-                if filename in img_path or os.path.basename(img_path) == filename:
-                    if os.path.exists(img_path):
-                        directory = os.path.dirname(img_path) or '.'
-                        file_name = os.path.basename(img_path)
-                        return send_from_directory(directory, file_name)
+        # If not found, try to find in indexer paths (both methods)
+        for indexer in [traditional_indexer, text_indexer]:
+            if indexer.image_paths:
+                for img_path in indexer.image_paths:
+                    if filename in img_path or os.path.basename(img_path) == filename:
+                        if os.path.exists(img_path):
+                            directory = os.path.dirname(img_path) or '.'
+                            file_name = os.path.basename(img_path)
+                            return send_from_directory(directory, file_name)
         
         # Return 404 with error image
         return jsonify({'error': f'Image not found: {filename}'}), 404
@@ -293,10 +451,20 @@ def serve_image(filename):
 
 @app.route('/api/list_images', methods=['GET'])
 def list_images():
-    """List available images for query selection"""
+    """List available images for query selection - supports both methods"""
     try:
+        data = request.args
+        method = data.get('method', 'traditional')  # 'traditional' or 'text'
+        
+        if method == 'traditional':
+            indexer = traditional_indexer
+        elif method == 'text':
+            indexer = text_indexer
+        else:
+            return jsonify({'error': f'Invalid method: {method}. Use "traditional" or "text"'}), 400
+        
         if not indexer.image_paths:
-            return jsonify({'images': []})
+            return jsonify({'images': [], 'method': method})
         
         images = []
         for i, path in enumerate(indexer.image_paths[:100]):  # Limit to first 100 for performance
@@ -308,7 +476,7 @@ def list_images():
                 'filename': os.path.basename(path)
             })
         
-        return jsonify({'images': images})
+        return jsonify({'images': images, 'method': method})
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500

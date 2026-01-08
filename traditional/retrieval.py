@@ -1,15 +1,14 @@
 """
-Image Retrieval Module with Relevance Feedback
-Implements Rocchio method for query reformulation
+Traditional Image Retrieval Module with Relevance Feedback
+Uses visual features (color, intensity, texture) and implements Rocchio method
 """
 
 import numpy as np
 from typing import List, Tuple, Set
-from scipy.spatial.distance import cosine
 
 
-class ImageRetrieval:
-    """Image retrieval system with relevance feedback"""
+class TraditionalImageRetrieval:
+    """Traditional image retrieval system with relevance feedback using visual features"""
     
     def __init__(self, features: np.ndarray, image_paths: List[str]):
         """
@@ -25,15 +24,16 @@ class ImageRetrieval:
         
         # Current query vector
         self.current_query: np.ndarray = None
+        self.original_query: np.ndarray = None  # Store original query for Rocchio
         
         # Feedback history
         self.relevant_images: Set[int] = set()
         self.irrelevant_images: Set[int] = set()
         
-        # Rocchio parameters (recommended values from slide)
+        # Rocchio parameters (adjusted for better feedback impact)
         self.alpha = 1.0  # Weight for original query
-        self.beta = 0.75  # Weight for relevant documents
-        self.gamma = 0.25  # Weight for irrelevant documents
+        self.beta = 1.0  # Weight for relevant documents (increased for stronger impact)
+        self.gamma = 0.5  # Weight for irrelevant documents (increased for stronger impact)
     
     def _normalize_features(self, features: np.ndarray) -> np.ndarray:
         """Normalize features to unit vectors"""
@@ -67,7 +67,8 @@ class ImageRetrieval:
         if query_image_idx < 0 or query_image_idx >= len(self.image_paths):
             raise ValueError(f"Invalid image index: {query_image_idx}")
         
-        self.current_query = self.normalized_features[query_image_idx].copy()
+        self.original_query = self.normalized_features[query_image_idx].copy()
+        self.current_query = self.original_query.copy()
         self.relevant_images = set()
         self.irrelevant_images = set()
         
@@ -85,6 +86,7 @@ class ImageRetrieval:
         if norm > 0:
             query_features = query_features / norm
         
+        self.original_query = query_features.copy()
         self.current_query = query_features.copy()
         self.relevant_images = set()
         self.irrelevant_images = set()
@@ -123,6 +125,9 @@ class ImageRetrieval:
         """Clear all feedback"""
         self.relevant_images = set()
         self.irrelevant_images = set()
+        # Reset query to original
+        if self.original_query is not None:
+            self.current_query = self.original_query.copy()
     
     def reformulate_query(self) -> np.ndarray:
         """
@@ -131,23 +136,25 @@ class ImageRetrieval:
         Returns:
             Reformulated query vector
         """
-        if self.current_query is None:
+        if self.original_query is None:
             raise ValueError("No initial query set. Call initial_query() first.")
         
         # Start with original query
-        new_query = self.alpha * self.current_query
+        new_query = self.alpha * self.original_query
         
-        # Add relevant documents
+        # Add relevant documents (Rocchio: beta * mean of relevant docs)
         if len(self.relevant_images) > 0:
             relevant_features = self.normalized_features[list(self.relevant_images)]
             relevant_center = np.mean(relevant_features, axis=0)
-            new_query += (self.beta / len(self.relevant_images)) * relevant_center
+            # beta * mean(relevant) = beta * (sum/relevant_count)
+            new_query += self.beta * relevant_center
         
-        # Subtract irrelevant documents
+        # Subtract irrelevant documents (Rocchio: gamma * mean of irrelevant docs)
         if len(self.irrelevant_images) > 0:
             irrelevant_features = self.normalized_features[list(self.irrelevant_images)]
             irrelevant_center = np.mean(irrelevant_features, axis=0)
-            new_query -= (self.gamma / len(self.irrelevant_images)) * irrelevant_center
+            # gamma * mean(irrelevant) = gamma * (sum/irrelevant_count)
+            new_query -= self.gamma * irrelevant_center
         
         # Normalize
         norm = np.linalg.norm(new_query)

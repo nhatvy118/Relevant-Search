@@ -27,6 +27,20 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-section">
+                <h3 class="sidebar-title">Method Selection</h3>
+                <div class="sidebar-content">
+                    <label class="input-label">Retrieval Method</label>
+                    <select id="methodSelector" class="sidebar-input">
+                        <option value="traditional">Traditional (Visual Features)</option>
+                        <option value="text">Text-based (CLIP)</option>
+                    </select>
+                    <div id="methodDescription" class="method-description">
+                        <small>Traditional: Uses color, intensity, and texture features</small>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
                 <h3 class="sidebar-title">Index Management</h3>
                 <div class="sidebar-content">
                     <label class="input-label">Image Folder</label>
@@ -42,37 +56,53 @@
             </div>
 
             <div class="sidebar-section">
-                <h3 class="sidebar-title">Query Image</h3>
+                <h3 class="sidebar-title">Relevance Feedback</h3>
                 <div class="sidebar-content">
-                    <label for="queryImage" class="upload-button btn-block">
-                        <span>📁 Select Query Image</span>
-                        <input type="file" id="queryImage" accept="image/*" style="display: none;">
-                    </label>
+                    <!-- Text Feedback (for CLIP method) -->
+                    <div id="textFeedbackSection" style="display: none;">
+                        <label class="input-label">Text Feedback</label>
+                        <input type="text" id="textFeedback" placeholder="e.g., red dress, casual style" class="sidebar-input">
+                        <button id="addTextFeedbackBtn" class="btn btn-secondary btn-block" style="margin-top: 8px;">+ Add Text Feedback</button>
+                        <div id="textFeedbackList" class="text-feedback-list"></div>
+                    </div>
                     
-                    <div id="queryPreview" class="query-preview"></div>
-                    
-                    <button id="searchBtn" class="btn btn-search btn-block" disabled>🔍 Search</button>
+                    <div class="button-group-vertical">
+                        <button id="applyFeedbackBtn" class="btn btn-feedback btn-block" disabled>Apply Feedback</button>
+                    </div>
                 </div>
             </div>
 
             <div class="sidebar-section">
-                <h3 class="sidebar-title">Relevance Feedback</h3>
+                <h3 class="sidebar-title">Query</h3>
                 <div class="sidebar-content">
-                    <div id="feedbackInfo" class="feedback-badge">Relevant: 0 | Irrelevant: 0</div>
+                    <!-- Text Query (for CLIP method) -->
+                    <div id="textQuerySection" style="display: none;">
+                        <label class="input-label">Text Query</label>
+                        <input type="text" id="textQuery" placeholder="e.g., red dress, blue jeans" class="sidebar-input">
+                        <button id="textSearchBtn" class="btn btn-search btn-block" disabled>🔍 Search Text</button>
+                    </div>
                     
-                    <div class="button-group-vertical">
-                        <button id="applyFeedbackBtn" class="btn btn-feedback btn-block" disabled>Apply Feedback</button>
-                        <button id="resetBtn" class="btn btn-reset btn-block" disabled>Reset</button>
+                    <!-- Image Query (for both methods) -->
+                    <div id="imageQuerySection">
+                        <label for="queryImage" class="upload-button btn-block">
+                            <span>📁 Select Query Image</span>
+                            <input type="file" id="queryImage" accept="image/*" style="display: none;">
+                        </label>
+                        
+                        <div id="queryPreview" class="query-preview"></div>
+                        
+                        <button id="searchBtn" class="btn btn-search btn-block" disabled>🔍 Search Image</button>
                     </div>
                 </div>
             </div>
+
         </aside>
 
         <!-- Main Content Area -->
         <main class="main-content">
             <div class="content-header">
                 <h1>Image Retrieval Results</h1>
-                <p class="subtitle">Fashion Image Search using Rocchio Method with Relevance Feedback</p>
+                <p class="subtitle">Fashion Image Search</p>
             </div>
 
             <div class="content-body">
@@ -90,7 +120,7 @@
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-content">
-            <p>&copy; 2024 Image Retrieval System. Built with Rocchio Relevance Feedback Method.</p>
+            <p>&copy; 2024 Image Retrieval System.</p>
         </div>
     </footer>
 
